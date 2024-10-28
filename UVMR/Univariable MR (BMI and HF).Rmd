@@ -1,0 +1,152 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# MR WorkFlow:
+
+```{r}
+library(TwoSampleMR) 
+library(tidyverse) 
+
+
+```
+
+### 1. Importing Summary Statistics
+
+```{r}
+#Load location of files
+BMI <- system.file("extdata", "BMI_Sig.txt", package = "TwoSampleMR")
+HF <- system.file("extdata", "HFdata.txt", package = "TwoSampleMR")
+BMI
+```
+
+```{r}
+#use read_exposure function to read exposure data 
+BMI_exp_data <- read_exposure_data(BMI)
+BMI_exp_data
+```
+
+### 2. Performing LD Clumping of Exposure Data, and Harmonisation
+
+```{r}
+
+#CLUMPING EXPOSURE DATA - ensure independent SNPs selected
+options(ieugwasr_api = 'gwas-api.mrcieu.ac.uk/')
+BMI_clump <- clump_data(BMI_exp_data, clump_r2 = 0.01, pop = "EUR")
+
+
+
+#Read outcome data for the clumped exposure SNPs
+HF_out_data <- read_outcome_data(HF, snps = BMI_clump$SNP)
+
+
+
+#PERFORMING HARMONISATION
+hd <- harmonise_data(BMI_clump, HF_out_data, action = 2) %>%
+  as_tibble() %>%
+  filter(pval.outcome > 5e-8, eaf.outcome > 0.05, eaf.exposure > 0.05)
+#remove any snps with significant link to outcome, and those with low MAF
+#action 3 = Correct the strand for non-palindromic SNPs, but drop all palindromic SNPs
+
+
+```
+
+### 3. Running MR Analysis
+
+```{r}
+results <- mr(hd)
+
+#ALL RESULTS SHOW SIGNIFICANT EVIDENCE TO ACCEPT REJECT HYPOTHESIS OF THERE BEING NO CAUSAL EFFECT. 
+
+
+```
+
+```{r}
+results <- results %>%
+  mutate(
+    b = round(b, 2),
+    se = round(se, 2),
+    pval = formatC(pval, format = "e", digits = 2)
+  )
+results$exposure <- "BMI"
+results$outcome <- "Heart Failure"
+```
+
+```{r}
+results$pval <- as.numeric(results$pval)
+
+# Calculate 95% CI
+results$Lower_CI <- results$b - 1.96 * results$se
+results$Upper_CI <- results$b + 1.96 * results$se
+```
+
+```{r}
+results
+```
+
+# Sensitivity Analyses:
+
+### 1. Pleiotropy Test:
+
+```{r}
+mr_pleiotropy_test(hd)
+#Egger intereceot suggest slight negative bias due to pleiotropy but p_value much larger than 0.05 displays no strong evidence of directional horizontal pleiotropy in this analysis
+```
+
+### 2. Heterogeneity Test:
+
+```{r}
+heterogeneity_test <- mr_heterogeneity(hd)
+heterogeneity_test
+
+#Significant heterogeenity in IVW and MR egger analysis, can display that estimates are likely biased. Q VALUE MUCH LARGER THAN Q_DF
+
+```
+
+### 3. Scatter Plot:
+
+```{r}
+plot1 <- mr_scatter_plot(results,hd)
+plot1
+```
+
+# Visual Plots:
+
+### 1. Forest Plot:
+
+```{r}
+res_single <- mr_singlesnp(hd)
+plot2 <- mr_forest_plot(res_single)
+plot2
+```
+
+### 2. Leave-one out Plot
+
+```{r}
+res_loo <- mr_leaveoneout(hd)
+plot3 <- mr_leaveoneout_plot(res_loo)
+plot3
+```
+
+### 3. Funnel Plot: (Visually Inspect Horizontal Pleiotropy)
+
+```{r}
+plot4 <- mr_funnel_plot(res_single)
+plot4
+#Asymmetry can indicate invalid instruments
+```
+
+# MendelianRandomization Package
+
+### 1. IVW estimate using mr_ivw function
+
+```{r}
+mrdata <- mr_input(bx = hd$beta.exposure, bxse = hd$se.exposure, by = hd$beta.outcome, byse = hd$se.outcome, snps = hd$SNP)
+
+```
+
+```{r}
+mrresult <- result_ivw <- MendelianRandomization::mr_ivw(mrdata, robust = TRUE, penalized = TRUE)
+mrresult
+```
