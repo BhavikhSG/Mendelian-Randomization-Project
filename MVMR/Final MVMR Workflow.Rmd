@@ -1,0 +1,209 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## 1. Load packages
+
+```{r}
+library(tidyverse)    # Data wrangling 
+library(cowplot)
+library(TwoSampleMR)  # MR 
+library(LDlinkR)      # LD and proxy snps     
+library(MVMR)         # Multivarble MR
+library(gt)
+library(MendelianRandomization)
+```
+
+## 2. Combine exposure instruments into a set of all instruments
+
+```{r}
+id_exposure <- c("BMI_tidy.txt","SBP_tidy.txt", "T2DB_tidy.txt", "CADbackup_tidy.txt","LDL_tidy.txt")
+id_outcome <- "HF_tidy.txt"
+```
+
+## 3. Clump to avoid possibility that e.g. variant 1 in exposure 1 is in LD with variant in exposure 2
+
+```{r}
+options(ieugwasr_api = 'gwas-api.mrcieu.ac.uk/')
+mv_exposure_dat <- mv_extract_exposures_local(id_exposure,
+  clump_r2 = 0.001,
+  clump_kb = 10000,
+  pop = "EUR",
+  harmonise_strictness = 2)
+```
+
+## 4. Re-extract all final clumped exposure SNPs from outcome
+
+```{r}
+options(ieugwasr_api = 'gwas-api.mrcieu.ac.uk/')
+mv_outcome_dat <- read_outcome_data(snps = mv_exposure_dat$SNP, "HF_tidy.txt")
+
+
+```
+
+## 5. Harmonise to all be on same effect allele
+
+```{r}
+mvdat <- mv_harmonise_data(mv_exposure_dat, mv_outcome_dat)
+
+```
+
+## 6. MVMR using TwoSampleMR
+
+```{r}
+result <- mv_multiple(mvdat)
+result
+```
+
+```{r}
+make_mvmr_input <- function(exposure_dat, outcome.id.mrbase=NULL, outcome.data=NULL){
+  # provide exposure_dat created in the same way as for TwoSampleMR 
+  # also specify the outcome argument [only ONE!] (MR-base ID or full gwas data in .outcome format)
+
+  # extract SNPs for both exposures from outcome dataset
+  # (for the selected option mr.base or local outcome data)
+  if (!is.null(outcome.id.mrbase)) {
+    # if mrbase.id is provided
+    outcome_dat <- extract_outcome_data(snps = unique(exposure_dat$SNP),
+                                        outcomes = outcome.id.mrbase)
+  } else if (!is.null(outcome.data)){
+    # if outcome df is provided
+    outcome_dat <- outcome.data %>% filter(SNP %in% exposure_dat$SNP)
+  }
+  
+  # harmonize datasets
+  exposure_dat <- exposure_dat %>% mutate(id.exposure = exposure)
+  outcome_harmonised <- mv_harmonise_data(exposure_dat, outcome_dat)
+  
+  exposures_order <- colnames(outcome_harmonised$exposure_beta)
+  
+  # Create variables for the analysis 
+  
+  ### works for many exposures
+  no_exp = dim(outcome_harmonised$exposure_beta)[2] # count exposures
+  # add beta/se names
+  colnames(outcome_harmonised$exposure_beta) <- paste0("betaX", 1:no_exp)
+  colnames(outcome_harmonised$exposure_se) <- paste0("seX", 1:no_exp)
+  
+  XGs <-left_join(as.data.frame(outcome_harmonised$exposure_beta) %>% rownames_to_column('SNP'), 
+                 as.data.frame(outcome_harmonised$exposure_se)   %>%rownames_to_column('SNP'), 
+                 by = "SNP")
+  
+  YG <- data.frame(beta.outcome = outcome_harmonised$outcome_beta,
+                   se.outcome = outcome_harmonised$outcome_se) %>% 
+        mutate(SNP = XGs$SNP)
+
+  
+  return(list(YG = YG,
+              XGs = XGs,
+              exposures = exposures_order))
+}
+
+tidy_pvals<-function(df){
+  # round up output values and keep p-vals in scientific notation
+  df %>% 
+    mutate(pval= as.character(pval)) %>% 
+    mutate_if(is.numeric, round, digits=2) %>% 
+    mutate(pval=as.numeric(pval),
+           pval=scales::scientific(pval, digits = 2),
+           pval=as.numeric(pval))
+}
+
+tidy_mvmr_output <- function(mvmr_res) {
+  #  tidy up MVMR returned output
+  mvmr_res %>%
+    as.data.frame() %>% 
+    rownames_to_column("exposure") %>% 
+    rename(b=Estimate,
+           se="Std. Error",
+           pval="Pr(>|t|)") %>% 
+    select(-c(`t value`)) %>% 
+    TwoSampleMR::generate_odds_ratios()
+}
+```
+
+# MVMR Package:
+
+## 1. Prepare MVMR input
+
+```{r}
+mvmr_input <- make_mvmr_input(mv_exposure_dat, outcome.data = mv_outcome_dat)
+```
+
+## 2. Format data into MVMR format
+
+```{r}
+mvmr_out <- format_mvmr(BXGs = mvmr_input$XGs %>% select(contains("beta")),  # exposure betas
+                        BYG = mvmr_input$YG$beta.outcome,                     # outcome beta
+                        seBXGs = mvmr_input$XGs %>% select(contains("se")),  # exposure SE
+                        seBYG = mvmr_input$YG$se.outcome,                     # outcome SE
+                        RSID = mvmr_input$XGs$SNP) 
+          #SNPs
+
+```
+
+## 3. Conditional F statistic for strength of instruments for covariance = 0
+
+```{r}
+sres <- strength_mvmr(r_input = mvmr_out, gencov = 0)
+```
+
+## Conditional F-Stat for Phenotypic Correlation
+
+```{r}
+betasizes <- mvmr_out[, c("betaX1", "betaX2", "betaX3", "betaX4","betaX5")]
+
+# Standardize the data
+betasizes_scaled <- scale(betasizes)
+
+# Calculate the covariance matrix
+cov_matrix <- cov(betasizes_scaled)
+
+
+```
+
+```{r}
+Xcovmat<-phenocov_mvmr(cov_matrix,mvmr_out[,9:13])
+sres2 <- strength_mvmr(r_input = mvmr_out, gencov = Xcovmat)
+
+```
+
+## **4. Test for horizontal pleiotropy using conventional Q-statistic estimation for covariance = 0**
+
+```{r}
+pleiotropy_mvmr(mvmr_out, gencov = 0)
+```
+
+## Test for pleiotropy for phenotypic correlation:
+
+```{r}
+pleiotropy_mvmr(mvmr_out, gencov = Xcovmat)
+```
+
+## 5. Conduct MVMR using MVMR package.
+
+```{r}
+mvmr_res <- ivw_mvmr(r_input=mvmr_out)
+#results same when including phenotypic correlation
+
+```
+
+```{r}
+result_mvmr <-
+    mvmr_res %>% 
+    tidy_mvmr_output() %>% 
+    mutate(exposure = mvmr_input$exposures,
+           outcome = 'Heart Failure') %>% 
+    select(exposure, outcome, everything()) %>% 
+    tidy_pvals()
+
+result_mvmr
+```
+
+## 6. Robust Causal effect Estimate
+
+```{r}
+res1 <- qhet_mvmr(mvmr_out, cov_matrix, CI = F, iterations = 50)
+res1
+```
