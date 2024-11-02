@@ -1,0 +1,24 @@
+Project Aim: Determine if there are any significant causal relationships between selected cardiovascular risk factors on Heart Failure development using Mendelian Randomization
+
+Risk Factors Selected:
+- BMI
+- LDL Cholesterol
+- Coronary Artery Disease
+- Systolic Blood Pressure
+- Type 2 Diabetes
+
+Data Selection:
+GWAS Summary Statistics chosen with European Ancestry
+
+Packages used:
+- TwoSampleMR : Used to conduct Two Sample Univariable MR analyses 
+- MendelianRandomization : The MendelianRandomization package will be used to produce a robust 
+estimate of the causal estimate for the IVW method in the Univariable MR analysis.
+- MVMR : Conduct Multivariable Mendelian Randomization analyses
+
+The study will begin with preliminary Univariable MR analyses to establish foundational causal relationships before progressing to MVMR to explore the direct causal links of the selected risk factors on Heart Failure 6. Robustness checks, including sensitivity analyses and tests for pleiotropy, will be performed to enhance confidence in the findings
+
+Findings:
+The findings from this experiment indicate significant causal relationships between several cardiovascular risk factors and the development of Heart Failure (HF). Specifically, Body Mass Index (BMI), Systolic Blood Pressure, and Coronary Artery Disease (CAD) were shown to have statistically significant positive effects on HF, with BMI demonstrating the highest increase in odds (60% increase per unit increase). Conversely, the effects of LDL Cholesterol and Type 2 Diabetes Mellitus were found to be non-significant when accounting for the other exposures in the Multivariable Mendelian Randomization (MVMR) analysis.
+
+Additionally, the study highlighted that the causal estimates for systolic blood pressure and CAD decreased when robust estimates were calculated using Q-Statistic minimization, suggesting that the initial associations may have been influenced by confounding factors. The presence of significant heterogeneity among the instruments used for the analyses raised concerns about the validity of some of the causal estimates, indicating that further investigation into potential pleiotropic effects is warranted. Overall, the results suggest that targeting BMI, systolic blood pressure, and CAD could be beneficial for future interventions aimed at preventing heart failure
