@@ -15,7 +15,7 @@ library(tidyverse)
 ### 1. Importing Summary Statistics
 
 ```{r}
-#Load location of files
+#Load location of files into R
 BMI <- system.file("extdata", "BMI_Sig.txt", package = "TwoSampleMR")
 HF <- system.file("extdata", "HFdata.txt", package = "TwoSampleMR")
 BMI
