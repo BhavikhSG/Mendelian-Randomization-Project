@@ -3,7 +3,7 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-## 1. Load packages
+## 1. Load packages into R
 
 ```{r}
 library(tidyverse)    # Data wrangling 
